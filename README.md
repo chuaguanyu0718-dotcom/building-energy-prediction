@@ -99,5 +99,7 @@ WiDS Datathon 2022 (Kaggle / Climate Change AI / MIT Climate Lab): about 76k bui
 
 | Name | Role |
 |---|---|
-| [name] | [role] |
-| [name] | [role] |
+| Chua Guan Yu | Member |
+| Chay Ze Huan | Member |
+| Li Shou Xiang | Member |
+| Liu Xiang Zhe | Member |
