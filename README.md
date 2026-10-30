@@ -51,7 +51,7 @@ After the pipeline has run once, type `RetrofitRadarApp` in MATLAB to open an in
 **What the segment view shows:** the best model depends on which buildings you score.
 
 - **All Year 6 buildings:** log-target boosting is best (RMSE 40.2; tuned model 40.3).
-- **Excluding State 6** (closer to the test year, which has no State 6 buildings): **raw-target boosting is best (RMSE 40.2 vs 43.2 for the tuned log model).** The log transform helps most on State 6's many multifamily buildings and less elsewhere.
+- **Excluding State 6** (closer to the test year, which has no State 6 buildings): **raw-target boosting is best (RMSE 40.2 vs 43.2 for the tuned log model).** State 6 is dominated by multifamily housing (80% of all multifamily rows), which is where the log model does best.
 - **By building type (all states):** log-target boosting wins for multifamily, small residential, hotels, warehouses and nursing homes; a single tree for offices; bagging for "commercial other"; tuned boosting for colleges, retail and dormitories; raw-target boosting for mixed-use buildings.
 
 So one global model is a sound default, but for the Year 7 buildings (no State 6) a raw-target model or per-type model selection is a natural next step. The app lets anyone check this for themselves.
