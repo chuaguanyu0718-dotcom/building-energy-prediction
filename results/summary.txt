@@ -1,0 +1,11 @@
+==== SUMMARY ====
+Final model: LSBoost, 584 trees, MaxNumSplits=15, LearnRate=0.10, log target
+Year 6 hold-out: RMSE 42.85 | MAE 19.42 | R^2 0.435 | RMSE excl. State 6 43.26
+RMSE improvement over facility-type baseline: 15%
+Year 6 RMSE seen-before buildings 30.42 (n=8456) vs new buildings 48.85 (n=13988)
+Benchmark model (no Energy Star, unseen buildings) RMSE 48.69
+Retrofit: 3084 of 22444 Year-6 buildings flagged (13.7%)
+Median Energy Star: flagged 20 vs not flagged 73
+Top 5% of buildings hold 59% of excess energy
+Excess energy in flagged buildings: 9252 GWh/yr, approx. 3516 kt CO2/yr (at 0.38 t/MWh)
+Median excess per flagged building: 1372 MWh/yr
