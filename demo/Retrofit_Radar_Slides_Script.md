@@ -1,6 +1,6 @@
 # Retrofit Radar: 5-minute presentation script
 
-Speaker notes for [Retrofit_Radar_Slides.pdf](Retrofit_Radar_Slides.pdf). About 763 words, roughly 5 minutes at a normal speaking pace.
+Speaker notes for [Retrofit_Radar_Slides.pdf](Retrofit_Radar_Slides.pdf). 
 
 ## Slide 1: Retrofit Radar
 
