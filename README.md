@@ -66,4 +66,9 @@ Full table: [`results/model_comparison.csv`](results/model_comparison.csv)
 
 | Name | Role |
 |---|---|
-| _TODO_ | |
+| Chua Guan Yu | Member |
+| Chay Ze Huan | Member |
+| Li Shou Xiang | Member |
+| Liu Xiang Zhe | Member |
+
+
