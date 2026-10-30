@@ -29,17 +29,18 @@ set(groot, 'defaultAxesFontSize', 12);
 
 %% 1. Configuration
 cfg.fastMode   = false;          % true = fewer trees, for a quick (~3 min) error check
-cfg.flagRatio  = 1.5;            % flag if actual EUI >= 1.5 x expected EUI
+cfg.flagRatio  = 1.5;            % retrofit candidate if actual EUI >= 1.5 x expected
+cfg.errorRatio = 5;              % >= 5 x expected is more likely a meter/data error
 cfg.kBtuToMWh  = 0.29307107e-3;  % 1 kBtu = 0.293 kWh = 0.000293 MWh
 cfg.tCO2perMWh = 0.38;           % ASSUMED emission factor (approx. US grid average)
 cfg.numBins    = 50;             % bin numeric predictors -> much faster tree training
 
 if cfg.fastMode
-    cfg.nBag = 30;  cfg.nBoost = 100; cfg.tuneCycles = 200;
-    cfg.tuneSplits = [15 60]; cfg.tuneRates = 0.1;
+    cfg.nBag = 30;  cfg.nBoost = 100; cfg.tuneCycles = 200; cfg.netIter = 100;
+    cfg.tuneSplits = [15 30]; cfg.tuneRates = 0.1;
 else
-    cfg.nBag = 100; cfg.nBoost = 300; cfg.tuneCycles = 600;
-    cfg.tuneSplits = [15 60]; cfg.tuneRates = [0.05 0.1];
+    cfg.nBag = 100; cfg.nBoost = 300; cfg.tuneCycles = 600; cfg.netIter = 500;
+    cfg.tuneSplits = [15 30 60]; cfg.tuneRates = [0.05 0.1];
 end
 
 % Locate the data (next to this script, in ./data, or in the current folder)
@@ -191,7 +192,8 @@ fprintf('%d rows come from %d distinct buildings\n', height(Data), max(Data.buil
 
 %% 5. Split by YEAR, not randomly
 % Year 7 (the real test set) is a FUTURE year, so we validate the same way:
-%   Tuning  : train on Years 1-4, choose hyperparameters on Year 5
+%   Tuning  : only Years 1-5 (tree: train 1-4 / check 5; boosting:
+%             time-series CV, train 1-3 / check 4 and train 1-4 / check 5)
 %   Testing : train on Years 1-5, report final accuracy on Year 6
 %             (Year 6 is never used for any modelling decision)
 idxTuneFit = Data.Year_Factor <= 4;
@@ -277,27 +279,63 @@ predBoostLog = exp(predict(boostLog, Xtest));
 results = [results; scoreModel('5. Boosted trees (log target)', yTest, predBoostLog, nonS6Test)];
 fprintf('   (two boosting fits took %.0f s)\n', toc);
 
-% M6. Tuned boosting: grid over tree size and learning rate. A single fit
-% gives the tuning error after EVERY number of trees ('cumulative' loss),
-% so the number of trees is tuned for free.
+% M6. Neural network: a different model family for comparison. Two hidden
+% layers on standardised inputs (categoricals are dummy-encoded
+% automatically). Log-predictions are clipped to the training range so a
+% single extreme output cannot explode after exp().
 tic;
+net = fitrnet(Xdev, log(yDev), 'LayerSizes', [64 32], 'Standardize', true, ...
+    'Lambda', 1e-5, 'IterationLimit', cfg.netIter);
+logPredNet = min(max(predict(net, Xtest), log(min(yDev))), log(max(yDev)));
+results = [results; scoreModel('6. Neural network (log target)', yTest, exp(logPredNet), nonS6Test)];
+fprintf('   (neural network took %.0f s)\n', toc);
+
+% M7. Tuned boosting with expanding-window (time-series) cross-validation:
+%   fold 1: train Years 1-3, validate on Year 4
+%   fold 2: train Years 1-4, validate on Year 5
+% Tuning on a single year over-fitted to that year's quirks (Year 5 has a
+% state never seen before), so we average the error over two future years.
+% The grid includes the untuned settings (30 splits, rate 0.1), and one fit
+% gives the error after EVERY number of trees ('cumulative' loss), so the
+% number of trees is tuned for free.
+tic;
+foldFit = {Data.Year_Factor <= 3, Data.Year_Factor <= 4};
+foldVal = {Data.Year_Factor == 4, Data.Year_Factor == 5};
+nFolds = numel(foldFit);
+Xf = cell(nFolds, 2);  yf = cell(nFolds, 2);
+for f = 1:nFolds
+    [Xf{f, 1}, Xf{f, 2}] = buildXY(Data(foldFit{f}, :), Data(foldVal{f}, :), predFull);
+    yf{f, 1} = Data.site_eui(foldFit{f});
+    yf{f, 2} = Data.site_eui(foldVal{f});
+end
 best = struct('loss', Inf, 'splits', NaN, 'lr', NaN, 'k', NaN);
 curves = cell(numel(cfg.tuneSplits), numel(cfg.tuneRates));
 for i = 1:numel(cfg.tuneSplits)
     for j = 1:numel(cfg.tuneRates)
-        ens = fitrensemble(XtuneFit, log(yTuneFit), 'Method', 'LSBoost', ...
-            'NumLearningCycles', cfg.tuneCycles, 'LearnRate', cfg.tuneRates(j), ...
-            'Learners', templateTree('MaxNumSplits', cfg.tuneSplits(i), 'MinLeafSize', 20), ...
-            'NumBins', cfg.numBins);
-        L = sqrt(loss(ens, Xtune, log(yTune), 'Mode', 'cumulative'));
-        curves{i, j} = L;
-        [Lmin, k] = min(L);
+        mseSum = [];
+        for f = 1:nFolds
+            ens = fitrensemble(Xf{f, 1}, log(yf{f, 1}), 'Method', 'LSBoost', ...
+                'NumLearningCycles', cfg.tuneCycles, 'LearnRate', cfg.tuneRates(j), ...
+                'Learners', templateTree('MaxNumSplits', cfg.tuneSplits(i), 'MinLeafSize', 20), ...
+                'NumBins', cfg.numBins);
+            L = loss(ens, Xf{f, 2}, log(yf{f, 2}), 'Mode', 'cumulative');
+            L = L(:);
+            if isempty(mseSum)
+                mseSum = L;
+            else
+                n = min(numel(mseSum), numel(L));
+                mseSum = mseSum(1:n) + L(1:n);
+            end
+        end
+        cvRMSE = sqrt(mseSum / nFolds);       % average over the two time folds
+        curves{i, j} = cvRMSE;
+        [Lmin, k] = min(cvRMSE);
         if Lmin < best.loss
             best = struct('loss', Lmin, 'splits', cfg.tuneSplits(i), 'lr', cfg.tuneRates(j), 'k', k);
         end
     end
 end
-fprintf('   Best on Year 5: MaxNumSplits=%d, LearnRate=%.2f, %d trees (tuning took %.0f s)\n', ...
+fprintf('   Best (2-fold time CV): MaxNumSplits=%d, LearnRate=%.2f, %d trees (tuning took %.0f s)\n', ...
     best.splits, best.lr, best.k, toc);
 
 fig = figure('Name', 'Boosting tuning');
@@ -312,15 +350,15 @@ end
 plot(best.k, best.loss, 'kp', 'MarkerSize', 16, 'MarkerFaceColor', 'y');
 legendText{end + 1} = 'Chosen';
 legend(legendText, 'Location', 'northeast');
-xlabel('Number of trees'); ylabel('RMSE of log(EUI) on Year 5'); grid on;
-title('Boosting: choosing tree size, learning rate and number of trees');
+xlabel('Number of trees'); ylabel('RMSE of log(EUI), avg of Years 4 and 5'); grid on;
+title('Boosting tuned by time-series cross-validation');
 saveFig(fig, figDir, 'fig06_boosting_tuning');
 
 bestTemplate = templateTree('MaxNumSplits', best.splits, 'MinLeafSize', 20);
 tuned = fitrensemble(Xdev, log(yDev), 'Method', 'LSBoost', 'NumLearningCycles', best.k, ...
     'LearnRate', best.lr, 'Learners', bestTemplate, 'NumBins', cfg.numBins);
 predTuned = exp(predict(tuned, Xtest));
-results = [results; scoreModel('6. Tuned boosted trees (log)', yTest, predTuned, nonS6Test)];
+results = [results; scoreModel('7. Tuned boosted trees (log)', yTest, predTuned, nonS6Test)];
 
 writetable(results, fullfile(resDir, 'model_comparison.csv'));
 
@@ -420,28 +458,39 @@ Retro.ratio        = Retro.site_eui ./ Retro.expected_eui;
 Retro.excess_eui   = Retro.site_eui - Retro.expected_eui;
 Retro.excess_MWh   = Retro.excess_eui .* Retro.floor_area * cfg.kBtuToMWh;
 Retro.excess_tCO2  = Retro.excess_MWh * cfg.tCO2perMWh;
-Retro.flagged      = Retro.ratio >= cfg.flagRatio;
+% Three outcomes: normal, retrofit candidate, or "verify meter data".
+% Using 5x what comparable buildings use is more often a metering or
+% data-entry error than a real building, so those are checked first,
+% not counted as savings.
+Retro.meterCheck   = Retro.ratio >= cfg.errorRatio;
+Retro.flagged      = Retro.ratio >= cfg.flagRatio & ~Retro.meterCheck;
 
-nFlag = sum(Retro.flagged);
+nFlag  = sum(Retro.flagged);
+nCheck = sum(Retro.meterCheck);
 starFlag  = median(Retro.energy_star_rating(Retro.flagged),  'omitnan');
-starOther = median(Retro.energy_star_rating(~Retro.flagged), 'omitnan');
+starOther = median(Retro.energy_star_rating(~Retro.flagged & ~Retro.meterCheck), 'omitnan');
 flagGWh = sum(Retro.excess_MWh(Retro.flagged)) / 1000;
 flagKtCO2 = sum(Retro.excess_tCO2(Retro.flagged)) / 1000;
-fprintf('Flagged %d of %d buildings (%.1f%%) using >= %.1fx their expected energy\n', ...
-    nFlag, height(Retro), 100 * nFlag / height(Retro), cfg.flagRatio);
-fprintf('Independent check - median Energy Star: flagged %.0f vs not flagged %.0f\n', starFlag, starOther);
+fprintf('Retrofit candidates: %d of %d buildings (%.1f%%) using %.1f-%.0fx their expected energy\n', ...
+    nFlag, height(Retro), 100 * nFlag / height(Retro), cfg.flagRatio, cfg.errorRatio);
+fprintf('Verify meter data: %d buildings using >= %.0fx their expected energy\n', nCheck, cfg.errorRatio);
+fprintf('Independent check - median Energy Star: candidates %.0f vs not flagged %.0f\n', starFlag, starOther);
 
 % 8a. Validation: the benchmark never saw Energy Star, yet the buildings it
 % flags have far worse Energy Star ratings -> the flags are meaningful.
+outcome = repmat("Not flagged", height(Retro), 1);
+outcome(Retro.flagged) = "Retrofit candidate";
+outcome(Retro.meterCheck) = "Verify meter data";
+Retro.outcome = categorical(outcome, ["Not flagged", "Retrofit candidate", "Verify meter data"]);
 fig = figure('Name', 'Energy Star check');
-grp = categorical(Retro.flagged, [false true], {'Not flagged', 'Flagged for retrofit'});
-boxchart(grp, Retro.energy_star_rating);
+boxchart(Retro.outcome, Retro.energy_star_rating);
 ylabel('Energy Star rating (1-100, higher = more efficient)'); grid on;
-title(sprintf('Benchmark never saw Energy Star, yet flagged median = %.0f vs %.0f', starFlag, starOther));
+title(sprintf('Benchmark never saw Energy Star, yet candidates'' median = %.0f vs %.0f', starFlag, starOther));
 saveFig(fig, figDir, 'fig12_energy_star_check');
 
 % 8b. Pareto: a small share of buildings holds most of the wasted energy
-posExcess = sort(Retro.excess_MWh(Retro.excess_MWh > 0), 'descend');
+% (likely meter errors excluded)
+posExcess = sort(Retro.excess_MWh(Retro.excess_MWh > 0 & ~Retro.meterCheck), 'descend');
 cumShare = cumsum(posExcess) / sum(posExcess);
 bldShare = (1:numel(posExcess))' / height(Retro);
 k5 = min(numel(posExcess), max(1, round(0.05 * height(Retro))));
@@ -482,8 +531,12 @@ saveFig(fig, figDir, 'fig15_importance_benchmark');
 Priority = sortrows(Retro(Retro.flagged, :), 'excess_MWh', 'descend');
 Priority.priority_rank = (1:height(Priority))';
 Priority = movevars(Priority, 'priority_rank', 'Before', 1);
-Priority.flagged = [];
+Priority = removevars(Priority, {'flagged', 'meterCheck', 'outcome'});
 writetable(Priority, fullfile(resDir, 'retrofit_priority_list.csv'));
+
+MeterChecks = sortrows(Retro(Retro.meterCheck, :), 'ratio', 'descend');
+MeterChecks = removevars(MeterChecks, {'flagged', 'meterCheck', 'outcome'});
+writetable(MeterChecks, fullfile(resDir, 'meter_data_checks.csv'));
 disp('Top 10 retrofit priorities:');
 disp(Priority(1:min(10, height(Priority)), {'priority_rank', 'facility_type', 'floor_area', ...
     'site_eui', 'expected_eui', 'ratio', 'excess_MWh', 'excess_tCO2'}));
@@ -518,6 +571,7 @@ for out = [1, fid]          % print to Command Window (1) and to summary.txt
     fprintf(out, 'Benchmark model (no Energy Star, unseen buildings) RMSE %.2f\n', rmseOf(expected, yTest));
     fprintf(out, 'Retrofit: %d of %d Year-6 buildings flagged (%.1f%%)\n', ...
         nFlag, height(Retro), 100 * nFlag / height(Retro));
+    fprintf(out, 'Verify meter data: %d buildings (>= %.0fx expected)\n', nCheck, cfg.errorRatio);
     fprintf(out, 'Median Energy Star: flagged %.0f vs not flagged %.0f\n', starFlag, starOther);
     fprintf(out, 'Top 5%% of buildings hold %.0f%% of excess energy\n', 100 * top5Share);
     fprintf(out, 'Excess energy in flagged buildings: %.0f GWh/yr, approx. %.0f kt CO2/yr (at %.2f t/MWh)\n', ...
