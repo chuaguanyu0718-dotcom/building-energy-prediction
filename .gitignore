@@ -1,0 +1,18 @@
+# MATLAB autosave / backup files
+*.asv
+*.m~
+*.autosave
+*.mlx.autosave
+
+# Compiled / generated
+*.mex*
+slprj/
+codegen/
+*.slxc
+*.mat.tmp
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
