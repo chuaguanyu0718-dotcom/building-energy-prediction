@@ -214,6 +214,7 @@ yTuneFit = Data.site_eui(idxTuneFit);  yTune = Data.site_eui(idxTune);
 results = table('Size', [0 5], ...
     'VariableTypes', {'string', 'double', 'double', 'double', 'double'}, ...
     'VariableNames', {'Model', 'RMSE', 'MAE', 'R2', 'RMSE_excl_State6'});
+predAll = zeros(sum(idxTest), 8);     % every model's Year 6 predictions (for the app)
 
 %% 6. Model iteration (each step must beat the previous one)
 fprintf('\n--- Year 6 hold-out results ---\n');
@@ -225,6 +226,7 @@ typeMedian = splitapply(@median, yDev, g);
 pred = repmat(median(yDev), height(Xtest), 1);
 pred(found) = typeMedian(loc(found));
 results = [results; scoreModel('0. Facility-type median', yTest, pred, nonS6Test)];
+predAll(:, 1) = pred;
 
 % M1. Linear regression: simple and interpretable, but assumes every
 % effect is additive and straight-line.
@@ -232,6 +234,7 @@ lmData = [Xdev(:, predLinear), table(yDev, 'VariableNames', {'site_eui'})];
 lm = fitlm(lmData, 'linear', 'ResponseVar', 'site_eui');
 pred = predict(lm, Xtest(:, predLinear));
 results = [results; scoreModel('1. Linear regression', yTest, pred, nonS6Test)];
+predAll(:, 2) = pred;
 
 % M2. Single regression tree: captures non-linear effects and interactions
 % (e.g. hospitals in cold states). Leaf size tuned on Year 5.
@@ -246,6 +249,7 @@ bestLeaf = leafSizes(iBest);
 tree = fitrtree(Xdev, yDev, 'MinLeafSize', bestLeaf);
 pred = predict(tree, Xtest);
 results = [results; scoreModel(sprintf('2. Regression tree (leaf=%d)', bestLeaf), yTest, pred, nonS6Test)];
+predAll(:, 3) = pred;
 
 fig = figure('Name', 'Tree tuning');
 semilogx(leafSizes, leafRMSE, '-o', 'LineWidth', 2, 'MarkerFaceColor', 'auto');
@@ -262,6 +266,7 @@ bag = fitrensemble(Xdev, yDev, 'Method', 'Bag', 'NumLearningCycles', cfg.nBag, .
     'Learners', bagTemplate, 'NumBins', cfg.numBins);
 pred = predict(bag, Xtest);
 results = [results; scoreModel(sprintf('3. Bagged trees (%d)', cfg.nBag), yTest, pred, nonS6Test)];
+predAll(:, 4) = pred;
 fprintf('   (bagging took %.0f s)\n', toc);
 
 % M4/M5. Gradient boosting (LSBoost): adds small trees one at a time, each
@@ -272,11 +277,13 @@ boostRaw = fitrensemble(Xdev, yDev, 'Method', 'LSBoost', 'NumLearningCycles', cf
     'LearnRate', 0.1, 'Learners', boostTemplate, 'NumBins', cfg.numBins);
 pred = predict(boostRaw, Xtest);
 results = [results; scoreModel('4. Boosted trees (raw target)', yTest, pred, nonS6Test)];
+predAll(:, 5) = pred;
 
 boostLog = fitrensemble(Xdev, log(yDev), 'Method', 'LSBoost', 'NumLearningCycles', cfg.nBoost, ...
     'LearnRate', 0.1, 'Learners', boostTemplate, 'NumBins', cfg.numBins);
 predBoostLog = exp(predict(boostLog, Xtest));
 results = [results; scoreModel('5. Boosted trees (log target)', yTest, predBoostLog, nonS6Test)];
+predAll(:, 6) = predBoostLog;
 fprintf('   (two boosting fits took %.0f s)\n', toc);
 
 % M6. Neural network: a different model family for comparison. Two hidden
@@ -288,6 +295,7 @@ net = fitrnet(Xdev, log(yDev), 'LayerSizes', [64 32], 'Standardize', true, ...
     'Lambda', 1e-5, 'IterationLimit', cfg.netIter);
 logPredNet = min(max(predict(net, Xtest), log(min(yDev))), log(max(yDev)));
 results = [results; scoreModel('6. Neural network (log target)', yTest, exp(logPredNet), nonS6Test)];
+predAll(:, 7) = exp(logPredNet);
 fprintf('   (neural network took %.0f s)\n', toc);
 
 % M7. Tuned boosting with expanding-window (time-series) cross-validation:
@@ -359,8 +367,16 @@ tuned = fitrensemble(Xdev, log(yDev), 'Method', 'LSBoost', 'NumLearningCycles', 
     'LearnRate', best.lr, 'Learners', bestTemplate, 'NumBins', cfg.numBins);
 predTuned = exp(predict(tuned, Xtest));
 results = [results; scoreModel('7. Tuned boosted trees (log)', yTest, predTuned, nonS6Test)];
+predAll(:, 8) = predTuned;
 
 writetable(results, fullfile(resDir, 'model_comparison.csv'));
+
+% Save every model's Year 6 predictions so RetrofitRadarApp can re-score
+% the models on any segment (e.g. one building type) interactively.
+Year6Pred = [Data(idxTest, {'id', 'facility_type', 'State_Factor', 'site_eui'}), ...
+    array2table(predAll, 'VariableNames', {'m0_baseline', 'm1_linear', 'm2_tree', 'm3_bagged', ...
+    'm4_boost_raw', 'm5_boost_log', 'm6_neural_net', 'm7_tuned_boost'})];
+writetable(Year6Pred, fullfile(resDir, 'year6_model_predictions.csv'));
 
 fig = figure('Name', 'Model comparison', 'Position', [100 100 950 550]);
 bar(results.RMSE, 'FaceColor', [0.27 0.62 0.75]);

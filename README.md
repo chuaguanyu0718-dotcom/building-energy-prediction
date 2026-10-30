@@ -39,6 +39,23 @@ The biggest single gain comes from modelling log(EUI) (model 4 → 5). Tuning by
 - The **top 5% of buildings hold 57% of all excess energy**.
 - Excess energy of candidates: about **8,215 GWh/yr**, roughly **3,122 kt CO₂/yr** at an assumed 0.38 t/MWh. This is an upper bound, reached only if every candidate performed like its benchmark.
 
+## Interactive app: Retrofit Radar
+
+After the pipeline has run once, type `RetrofitRadarApp` in MATLAB to open an interactive explorer (it reads the files in `results/`, so it opens in seconds without retraining):
+
+| Tab | What it does |
+|---|---|
+| **Model evaluation** | Re-scores all 8 models on Year 6 for any building type, with or without State 6, highlights the best fit, and lists the best model per building type. Click a model to see its predicted-vs-actual plot. |
+| **Retrofit priorities** | The ranked retrofit candidates (or the buildings whose meter data should be verified), filtered by building type and minimum actual/expected ratio. Click a building to compare its actual energy use with the benchmark's expectation. |
+
+**What the segment view shows:** the best model depends on which buildings you score.
+
+- **All Year 6 buildings:** log-target boosting is best (RMSE 40.2; tuned model 40.3).
+- **Excluding State 6** (closer to the test year, which has no State 6 buildings): **raw-target boosting is best (RMSE 40.2 vs 43.2 for the tuned log model).** The log transform helps most on State 6's many multifamily buildings and less elsewhere.
+- **By building type (all states):** log-target boosting wins for multifamily, small residential, hotels, warehouses and nursing homes; a single tree for offices; bagging for "commercial other"; tuned boosting for colleges, retail and dormitories; raw-target boosting for mixed-use buildings.
+
+So one global model is a sound default, but for the Year 7 buildings (no State 6) a raw-target model or per-type model selection is a natural next step. The app lets anyone check this for themselves.
+
 ## Key data decisions
 
 | Decision | Why |
@@ -71,6 +88,7 @@ Facility-type median → linear regression → regression tree (leaf size tuned)
 | `results/retrofit_priority_list.csv` | Ranked retrofit candidates with expected vs actual EUI, excess MWh and CO₂ |
 | `results/meter_data_checks.csv` | Buildings whose usage is implausibly high (≥ 5× expected) |
 | `results/year7_predictions.csv` | Predictions for the unlabelled Year 7 buildings |
+| `results/year6_model_predictions.csv` | Every model's Year 6 predictions (used by the app) |
 | `results/summary.txt` | Headline numbers |
 
 ## Repository structure
@@ -79,6 +97,7 @@ Facility-type median → linear regression → regression tree (leaf size tuned)
 .
 ├── main.m                      # entry point (runs the pipeline)
 ├── BuildingEnergyRetrofit.m    # full pipeline, sectioned (open as Live Script)
+├── RetrofitRadarApp.m          # interactive model evaluation + retrofit explorer
 ├── data/                       # train.csv, test.csv
 ├── figures/                    # exported plots
 ├── results/                    # tables, predictions, saved models
