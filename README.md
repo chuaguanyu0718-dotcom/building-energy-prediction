@@ -29,6 +29,8 @@ All scores are on **Year 6**, a year never used for any modelling decision.
 | 6. Neural network (log target) | 53.9 | 29.6 | 0.11 | 61.3 |
 | **7. Tuned boosted trees (log)** | 40.3 | 18.7 | 0.50 | 43.2 |
 
+The biggest single gain comes from modelling log(EUI) (model 4 → 5). Tuning by time-series cross-validation lands on the same accuracy as the untuned log model (RMSE 40.3 vs 40.2, within noise) with the lowest MAE, which confirms those settings were already near-optimal. The neural network trails the tree models, as is typical on tabular data with categorical inputs and heavy outliers.
+
 **Final model:** LSBoost on log(EUI), 298 trees, up to 60 splits each, learning rate 0.05; RMSE 40.3, MAE 18.7, R² 0.50, **20% lower RMSE than the facility-type baseline**.
 
 **Retrofit engine (Year 6):**
