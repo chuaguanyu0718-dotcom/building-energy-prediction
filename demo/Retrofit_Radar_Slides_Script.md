@@ -1,6 +1,6 @@
 # Retrofit Radar: 5-minute presentation script
 
-Speaker notes for [Retrofit_Radar_Slides.pdf](Retrofit_Radar_Slides.pdf). About 626 words, roughly 4.5 minutes.
+Speaker notes for [Retrofit_Radar_Slides.pdf](Retrofit_Radar_Slides.pdf). About 763 words, roughly 5 minutes at a normal speaking pace.
 
 ## Slide 1: Retrofit Radar
 
@@ -30,22 +30,34 @@ We went from simple to complex. Linear regression beats the baseline, trees capt
 
 Our final model is tuned gradient boosting: an RMSE of 40.3 and an R-squared of 0.50 on Year 6, twenty percent better than the baseline. Typical buildings sit on the diagonal; the big misses are extreme users, which is where the retrofit engine looks next.
 
-## Slide 8: Retrofit engine: flag and rank
+## Slide 8: Retrofit engine: how a building is scored
 
-The retrofit engine uses a benchmark model without the Energy Star rating, because that rating would excuse inefficient buildings, and it never judges a building it trained on. Between 1.5 and 5 times its expected energy, a building is a retrofit candidate; above 5 times, it is probably a meter error, so we check it instead.
+Here is how a building is scored. The benchmark predicts what it should use, without the Energy Star rating and without having trained on it. We divide actual by expected. Our top building, a large health-care facility, uses 342 against an expected 192: 1.78 times. Over three million square feet, that is about 133,000 megawatt-hours and 50,000 tonnes of CO₂ a year.
 
-## Slide 9: Checking the flags: two results
+## Slide 9: Retrofit engine: three outcomes
 
-Two checks. The benchmark never saw Energy Star ratings, yet flagged buildings have a median rating of 20, against 73 for the rest. And the waste is concentrated: the top five percent of buildings hold 57 percent of the excess, so a small budget aimed at the top of our list captures most of it.
+That ratio sorts every building into three groups. Below 1.5 times is normal. From 1.5 to 5 times is a retrofit candidate, ranked by excess energy: 2,973 buildings. Above 5 times is too extreme to be real, so those 107 go to a meter check.
 
-## Slide 10: The MATLAB app: test the models yourself
+## Slide 10: Check 1: do the flags match Energy Star?
 
-Our MATLAB app re-scores all eight models for any building type, with or without State 6. It showed that outside State 6, the raw-target model beats our final one, and we report that openly. The second tab lets a facilities manager filter the list and compare any building’s actual and expected energy.
+How do we know the flags are right? Energy Star is an independent efficiency score the benchmark never saw. If our flags are real, flagged buildings should score low, and they do: a median of 20, against 73 for unflagged buildings.
 
-## Slide 11: Impact: a ranked list of buildings to audit
+## Slide 11: Check 2: where is the waste?
+
+Second, where is the waste? Ranking buildings by excess energy, the top five percent hold 57 percent of the total. So a small retrofit budget aimed at the top of our list captures most of the opportunity.
+
+## Slide 12: MATLAB app, tab 1: model evaluation
+
+Our MATLAB app has two tabs. The first re-scores all eight models for any building type, with or without State 6, and highlights the best. It showed us something new: outside State 6, the raw-target model beats our final one, because State 6 is mostly multifamily housing, where the log model is strongest. We report that openly instead of switching models after seeing the test year.
+
+## Slide 13: MATLAB app, tab 2: retrofit priorities
+
+The second tab is for a facilities manager. Choose the candidate list or the meter checks, filter by building type and ratio, and the summary updates. Click any building to see its actual energy against the benchmark, and the curve shows how concentrated the waste is in that list.
+
+## Slide 14: Impact: a ranked list of buildings to audit
 
 The result is a ranked list of 2,973 buildings to audit. If every candidate matched its benchmark, that is about 8,200 gigawatt-hours and three million tonnes of CO₂ a year. That is an upper bound, but it shows the scale. We also predict all Year 7 buildings.
 
-## Slide 12: Limits, assumptions and next steps
+## Slide 15: Limits, assumptions and next steps
 
 Some honest limits. A flag says which building to audit, not what to fix. The data has no occupancy or equipment information, which caps accuracy. And the CO₂ figure uses one assumed factor. Next, we’d choose models per building type, add retrofit costs, and re-run every year. Thank you.
